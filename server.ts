@@ -1,10 +1,14 @@
 import express, { Request, Response } from 'express';
-import { broadcast } from '@/utils/broadcast';
+import WebSocket from 'ws';
 import cors from 'cors';
+import http from 'http';
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 const port = process.env.API_PORT || 4000;
 let messages: string[] = [];
@@ -14,9 +18,9 @@ const MAX_MESSAGES = 9;
 //////////// CORS POLICY ////////////
 
 app.use(cors({
-    origin: 'http://localhost:3000', // allow only localhost:3000
-    methods: 'GET,POST', // allow only GET/POST
-    allowedHeaders: 'Content-Type' // allow only this head
+    origin: ['http://localhost:3000', 'http://localhost:3001'],    // allow only localhost:3000
+    methods: 'GET,POST',                // allow only GET/POST
+    allowedHeaders: 'Content-Type'      // allow only this head
 }));
 
 ////////////////////////////////////
@@ -32,15 +36,40 @@ app.post('/add_message', (req: Request, res: Response) => {
 
     broadcast(JSON.stringify({ type: 'new_message', message }));
     res.status(201).json({ success: true });
+    console.log("Recieved message:", message)
+    console.log("messages now:", messages)
 });
 
 app.get('/messages', (req, res) => {
     res.json(messages);
 });
 
+app.get('/messages_amount', (req, res) => {
+    res.json(MAX_MESSAGES);
+});
+
 ////////////////////////////////////
 ///////// LISTEN CURR PORT /////////
 
-app.listen(port, () => {
+const listener = app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
+////////////////////////////////////
+//////////// WEB SOCKET ////////////
+
+listener.on('upgrade', (request, socket, head) => {
+    wss.handleUpgrade(request, socket, head, ws => {
+        wss.emit('connection', ws, request);
+    });
+});
+
+function broadcast(data: string) {
+    console.log("Broadcast called!")
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            console.log("Broadcasted well: ", data)
+            client.send(data);
+        }
+    });
+}
